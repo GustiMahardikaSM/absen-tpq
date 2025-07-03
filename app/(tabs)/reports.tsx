@@ -5,16 +5,14 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Dimensions,
   Modal,
+  Alert,
+  Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Calendar, Download, TrendingUp, Users, CircleCheck as CheckCircle, Circle as XCircle, Star, Filter, User, BookOpen, ChevronRight, Clock } from 'lucide-react-native';
-import { LineChart, ProgressChart } from 'react-native-chart-kit';
+import { Calendar, TrendingUp, Users, CircleCheck as CheckCircle, Circle as XCircle, Star, User, BookOpen, ChevronRight, Clock, Download, Share as ShareIcon } from 'lucide-react-native';
 import { studentService, Student } from '@/services/studentService';
 import { attendanceService, Attendance } from '@/services/attendanceService';
-
-const screenWidth = Dimensions.get('window').width;
 
 interface StudentProgress {
   student: Student;
@@ -22,11 +20,11 @@ interface StudentProgress {
   presentDays: number;
   attendanceRate: number;
   completedLessons: number;
+  failedLessons: number;
   currentStreak: number;
-  longestStreak: number;
-  weeklyAttendance: number[];
-  monthlyProgress: { month: string; completed: number }[];
   recentNotes: string[];
+  initialPosition: string;
+  currentPosition: string;
 }
 
 interface DailyReport {
@@ -49,7 +47,6 @@ export default function Reports() {
   const [selectedDailyReport, setSelectedDailyReport] = useState<DailyReport | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDailyModal, setShowDailyModal] = useState(false);
-  const [selectedPeriod, setSelectedPeriod] = useState<'week' | 'month' | 'year'>('month');
   const [reportType, setReportType] = useState<'individual' | 'daily'>('individual');
 
   const loadStudentsAndProgress = async () => {
@@ -62,24 +59,10 @@ export default function Reports() {
       for (const student of studentsData) {
         const attendance = await attendanceService.getAttendanceByStudent(student.id);
         
-        // Calculate date range based on selected period
+        // Calculate date range for last month
         const currentDate = new Date();
-        let startDate: Date;
-        
-        switch (selectedPeriod) {
-          case 'week':
-            startDate = new Date(currentDate);
-            startDate.setDate(currentDate.getDate() - 7);
-            break;
-          case 'month':
-            startDate = new Date(currentDate);
-            startDate.setMonth(currentDate.getMonth() - 1);
-            break;
-          case 'year':
-            startDate = new Date(currentDate);
-            startDate.setFullYear(currentDate.getFullYear() - 1);
-            break;
-        }
+        const startDate = new Date(currentDate);
+        startDate.setMonth(currentDate.getMonth() - 1);
 
         const filteredAttendance = attendance.filter(a => 
           new Date(a.date) >= startDate
@@ -87,19 +70,10 @@ export default function Reports() {
 
         const presentDays = filteredAttendance.filter(a => a.present).length;
         const completedLessons = filteredAttendance.filter(a => a.lessonCompleted).length;
+        const failedLessons = filteredAttendance.filter(a => a.present && !a.lessonCompleted).length;
 
-        // Calculate weekly attendance for chart
-        const weeklyAttendance = [];
-        for (let i = 6; i >= 0; i--) {
-          const date = new Date(currentDate);
-          date.setDate(currentDate.getDate() - i);
-          const dateString = date.toISOString().split('T')[0];
-          const dayAttendance = attendance.find(a => a.date === dateString);
-          weeklyAttendance.push(dayAttendance?.present ? 1 : 0);
-        }
-
-        // Calculate streaks
-        const { currentStreak, longestStreak } = calculateStreaks(attendance);
+        // Calculate current streak
+        const { currentStreak } = calculateStreaks(attendance);
 
         // Get recent notes
         const recentNotes = attendance
@@ -107,24 +81,18 @@ export default function Reports() {
           .slice(-3)
           .map(a => a.teacherNotes);
 
-        // Monthly progress (simplified)
-        const monthlyProgress = [];
-        for (let i = 5; i >= 0; i--) {
-          const date = new Date(currentDate);
-          date.setMonth(currentDate.getMonth() - i);
-          const monthName = date.toLocaleDateString('id-ID', { month: 'short' });
-          
-          const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
-          const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-          
-          const monthAttendance = attendance.filter(a => {
-            const attendanceDate = new Date(a.date);
-            return attendanceDate >= monthStart && attendanceDate <= monthEnd;
-          });
-          
-          const completed = monthAttendance.filter(a => a.lessonCompleted).length;
-          monthlyProgress.push({ month: monthName, completed });
-        }
+        // Get initial position (30 days ago or first record)
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const thirtyDaysAgoString = thirtyDaysAgo.toISOString().split('T')[0];
+        
+        const oldAttendance = attendance
+          .filter(a => a.date <= thirtyDaysAgoString)
+          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        
+        const initialPosition = oldAttendance.length > 0 
+          ? `${oldAttendance[0].readingType === 'Iqro' ? oldAttendance[0].readingType : 'Surat'} ${oldAttendance[0].currentReading}`
+          : student.currentPosition;
 
         progressData.push({
           student,
@@ -132,11 +100,11 @@ export default function Reports() {
           presentDays,
           attendanceRate: filteredAttendance.length > 0 ? (presentDays / filteredAttendance.length) * 100 : 0,
           completedLessons,
+          failedLessons,
           currentStreak,
-          longestStreak,
-          weeklyAttendance,
-          monthlyProgress,
           recentNotes,
+          initialPosition,
+          currentPosition: `${student.readingLevel.startsWith('Iqro') ? student.readingLevel : 'Surat'} ${student.currentPosition}`,
         });
       }
 
@@ -189,9 +157,6 @@ export default function Reports() {
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     let currentStreak = 0;
-    let longestStreak = 0;
-    let tempStreak = 0;
-
     const today = new Date();
     let checkDate = new Date(today);
 
@@ -209,26 +174,7 @@ export default function Reports() {
       checkDate.setDate(checkDate.getDate() - 1);
     }
 
-    // Calculate longest streak
-    for (let i = 0; i < sortedAttendance.length; i++) {
-      if (i === 0) {
-        tempStreak = 1;
-      } else {
-        const prevDate = new Date(sortedAttendance[i - 1].date);
-        const currDate = new Date(sortedAttendance[i].date);
-        const dayDiff = (currDate.getTime() - prevDate.getTime()) / (1000 * 3600 * 24);
-        
-        if (dayDiff === 1) {
-          tempStreak++;
-        } else {
-          longestStreak = Math.max(longestStreak, tempStreak);
-          tempStreak = 1;
-        }
-      }
-    }
-    longestStreak = Math.max(longestStreak, tempStreak);
-
-    return { currentStreak, longestStreak };
+    return { currentStreak };
   };
 
   useEffect(() => {
@@ -237,28 +183,12 @@ export default function Reports() {
     } else {
       loadDailyReports();
     }
-  }, [selectedPeriod, reportType]);
-
-  const chartConfig = {
-    backgroundGradientFrom: '#FFFFFF',
-    backgroundGradientTo: '#FFFFFF',
-    color: (opacity = 1) => `rgba(34, 197, 94, ${opacity})`,
-    labelColor: (opacity = 1) => `rgba(30, 41, 59, ${opacity})`,
-    strokeWidth: 2,
-    barPercentage: 0.7,
-    useShadowColorFromDataset: false,
-  };
+  }, [reportType]);
 
   const getProgressColor = (rate: number) => {
     if (rate >= 80) return '#22C55E';
     if (rate >= 60) return '#F59E0B';
     return '#EF4444';
-  };
-
-  const getReadingLevelProgress = (student: Student) => {
-    const levels = ['Iqro 1', 'Iqro 2', 'Iqro 3', 'Iqro 4', 'Iqro 5', 'Iqro 6', 'Al-Quran'];
-    const currentIndex = levels.indexOf(student.readingLevel);
-    return currentIndex >= 0 ? (currentIndex + 1) / levels.length : 0;
   };
 
   const formatDate = (dateString: string) => {
@@ -269,6 +199,89 @@ export default function Reports() {
       month: 'long',
       year: 'numeric'
     });
+  };
+
+  const generatePDFReport = async (progress: StudentProgress) => {
+    const reportContent = `
+LAPORAN PERKEMBANGAN SISWA TPQ
+
+Nama: ${progress.student.name}
+Tingkat Bacaan: ${progress.student.readingLevel}
+Tanggal Lahir: ${progress.student.birthDate ? formatDate(progress.student.birthDate) : '-'}
+Jenis Kelamin: ${progress.student.gender}
+
+STATISTIK KEHADIRAN (30 HARI TERAKHIR)
+- Tingkat Kehadiran: ${progress.attendanceRate.toFixed(1)}%
+- Total Hari: ${progress.totalDays}
+- Hadir: ${progress.presentDays}
+- Tidak Hadir: ${progress.totalDays - progress.presentDays}
+- Streak Saat Ini: ${progress.currentStreak} hari berturut-turut
+
+PERKEMBANGAN BACAAN
+- Posisi Awal (30 hari lalu): ${progress.initialPosition}
+- Posisi Saat Ini: ${progress.currentPosition}
+
+PRESTASI
+- Total Lulus: ${progress.completedLessons}
+- Total Mengulang: ${progress.failedLessons}
+
+CATATAN GURU TERBARU
+${progress.recentNotes.length > 0 ? progress.recentNotes.map((note, index) => `${index + 1}. ${note}`).join('\n') : 'Tidak ada catatan'}
+
+REKOMENDASI
+${progress.attendanceRate >= 80 
+  ? `${progress.student.name} menunjukkan konsistensi yang baik. Terus berikan motivasi dan tantangan yang sesuai.`
+  : `${progress.student.name} perlu meningkatkan kehadiran. Pertimbangkan untuk memberikan perhatian khusus dan motivasi tambahan.`
+}
+
+${progress.currentStreak >= 7 ? `Apresiasi untuk streak kehadiran ${progress.currentStreak} hari berturut-turut!` : ''}
+
+---
+Laporan dibuat pada: ${new Date().toLocaleDateString('id-ID')}
+    `;
+
+    return reportContent;
+  };
+
+  const handleShareReport = async (progress: StudentProgress) => {
+    try {
+      const reportContent = await generatePDFReport(progress);
+      const today = new Date();
+      const dateString = `${today.getDate().toString().padStart(2, '0')}${(today.getMonth() + 1).toString().padStart(2, '0')}${today.getFullYear().toString().slice(-2)}`;
+      
+      await Share.share({
+        message: reportContent,
+        title: `Laporan_${progress.student.name.replace(/\s+/g, '_')}_${dateString}`,
+      });
+    } catch (error) {
+      Alert.alert('Error', 'Gagal membagikan laporan');
+    }
+  };
+
+  const handleDownloadReport = async (progress: StudentProgress) => {
+    try {
+      const reportContent = await generatePDFReport(progress);
+      const today = new Date();
+      const dateString = `${today.getDate().toString().padStart(2, '0')}${(today.getMonth() + 1).toString().padStart(2, '0')}${today.getFullYear().toString().slice(-2)}`;
+      
+      // For web platform, create a downloadable text file
+      if (typeof window !== 'undefined') {
+        const blob = new Blob([reportContent], { type: 'text/plain' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Laporan_${progress.student.name.replace(/\s+/g, '_')}_${dateString}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        Alert.alert('Berhasil', 'Laporan berhasil diunduh');
+      } else {
+        Alert.alert('Info', 'Fitur unduh akan segera tersedia untuk platform mobile');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Gagal mengunduh laporan');
+    }
   };
 
   const StudentProgressCard = ({ progress }: { progress: StudentProgress }) => (
@@ -392,58 +405,33 @@ export default function Reports() {
             styles.reportTypeOptionText,
             reportType === type && styles.reportTypeOptionTextSelected
           ]}>
-            {type === 'individual' ? 'Individual' : 'Harian'}
+            {type === 'individual' ? 'Individual' : 'Laporan TPQ'}
           </Text>
         </TouchableOpacity>
       ))}
     </View>
   );
 
-  const PeriodSelector = () => (
-    <View style={styles.periodSelector}>
-      {(['week', 'month', 'year'] as const).map((period) => (
-        <TouchableOpacity
-          key={period}
-          style={[
-            styles.periodOption,
-            selectedPeriod === period && styles.periodOptionSelected
-          ]}
-          onPress={() => setSelectedPeriod(period)}
-        >
-          <Text style={[
-            styles.periodOptionText,
-            selectedPeriod === period && styles.periodOptionTextSelected
-          ]}>
-            {period === 'week' ? 'Minggu' : period === 'month' ? 'Bulan' : 'Tahun'}
-          </Text>
-        </TouchableOpacity>
-      ))}
-    </View>
-  );
+  const presentCount = dailyReports.reduce((acc, r) => acc + r.presentStudents, 0);
+  const absentCount = dailyReports.reduce((acc, r) => acc + r.absentStudents, 0);
+  const completedCount = dailyReports.reduce((acc, r) => acc + r.completedLessons, 0);
 
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>Laporan Perkembangan</Text>
-        <TouchableOpacity style={styles.exportButton}>
-          <Download size={20} color="#FFFFFF" />
-          <Text style={styles.exportButtonText}>Export</Text>
-        </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.scrollView}>
         {/* Report Type Selector */}
         <ReportTypeSelector />
 
-        {/* Period Selector - only show for individual reports */}
-        {reportType === 'individual' && <PeriodSelector />}
-
         {reportType === 'individual' ? (
           <>
             {/* Summary Stats */}
             <View style={styles.summaryContainer}>
-              <Text style={styles.sectionTitle}>Ringkasan Periode {selectedPeriod === 'week' ? 'Minggu' : selectedPeriod === 'month' ? 'Bulan' : 'Tahun'} Ini</Text>
+              <Text style={styles.sectionTitle}>Ringkasan Bulan Ini</Text>
               <View style={styles.summaryStats}>
                 <View style={styles.summaryItem}>
                   <Users size={20} color="#3B82F6" />
@@ -486,7 +474,7 @@ export default function Reports() {
           <>
             {/* Daily Reports Summary */}
             <View style={styles.summaryContainer}>
-              <Text style={styles.sectionTitle}>Laporan Harian (7 Hari Terakhir)</Text>
+              <Text style={styles.sectionTitle}>Laporan TPQ (7 Hari Terakhir)</Text>
               <View style={styles.summaryStats}>
                 <View style={styles.summaryItem}>
                   <Clock size={20} color="#3B82F6" />
@@ -540,9 +528,7 @@ export default function Reports() {
               <Text style={styles.closeButton}>Tutup</Text>
             </TouchableOpacity>
             <Text style={styles.modalTitle}>Detail Perkembangan</Text>
-            <TouchableOpacity>
-              <Download size={20} color="#3B82F6" />
-            </TouchableOpacity>
+            <View style={{ width: 60 }} />
           </View>
 
           {selectedStudent && (
@@ -575,17 +561,18 @@ export default function Reports() {
                   <View style={[styles.metricIndicator, { backgroundColor: '#3B82F6' }]} />
                 </View>
                 <View style={styles.metricCard}>
-                  <Text style={styles.metricValue}>{selectedStudent.longestStreak}</Text>
-                  <Text style={styles.metricLabel}>Streak Terpanjang</Text>
-                  <View style={[styles.metricIndicator, { backgroundColor: '#8B5CF6' }]} />
+                  <Text style={styles.metricValue}>{selectedStudent.completedLessons}</Text>
+                  <Text style={styles.metricLabel}>Total Lulus</Text>
+                  <View style={[styles.metricIndicator, { backgroundColor: '#22C55E' }]} />
                 </View>
                 <View style={styles.metricCard}>
-                  <Text style={styles.metricValue}>{selectedStudent.completedLessons}</Text>
-                  <Text style={styles.metricLabel}>Total Kelulusan</Text>
-                  <View style={[styles.metricIndicator, { backgroundColor: '#F59E0B' }]} />
+                  <Text style={styles.metricValue}>{selectedStudent.failedLessons}</Text>
+                  <Text style={styles.metricLabel}>Total Mengulang</Text>
+                  <View style={[styles.metricIndicator, { backgroundColor: '#EF4444' }]} />
                 </View>
               </View>
-              {/* Hadir & Tidak Hadir */}
+
+              {/* Attendance Stats */}
               <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 16, gap: 24 }}>
                 <View style={{ alignItems: 'center' }}>
                   <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#22C55E' }}>{selectedStudent.presentDays}</Text>
@@ -597,53 +584,18 @@ export default function Reports() {
                 </View>
               </View>
 
-              {/* Reading Level Progress */}
-              <View style={styles.chartSection}>
-                <Text style={styles.chartTitle}>Progres Tingkat Bacaan</Text>
-                <View style={styles.progressContainer}>
-                  <ProgressChart
-                    data={{
-                      data: [getReadingLevelProgress(selectedStudent.student)]
-                    }}
-                    width={screenWidth - 60}
-                    height={200}
-                    strokeWidth={16}
-                    radius={60}
-                    chartConfig={{
-                      ...chartConfig,
-                      color: (opacity = 1) => `rgba(34, 197, 94, ${opacity})`,
-                    }}
-                    hideLegend
-                    style={styles.chart}
-                  />
-                  <View style={styles.progressOverlay}>
-                    <Text style={styles.progressPercentage}>
-                      {Math.round(getReadingLevelProgress(selectedStudent.student) * 100)}%
-                    </Text>
-                    <Text style={styles.progressLabel}>Progres</Text>
+              {/* Reading Progress */}
+              <View style={styles.progressSection}>
+                <Text style={styles.sectionTitle}>Perkembangan Bacaan</Text>
+                <View style={styles.progressCard}>
+                  <View style={styles.progressItem}>
+                    <Text style={styles.progressLabel}>Posisi Awal (30 hari lalu)</Text>
+                    <Text style={styles.progressValue}>{selectedStudent.initialPosition}</Text>
                   </View>
-                </View>
-              </View>
-
-              {/* Weekly Attendance Chart */}
-              <View style={styles.chartSection}>
-                <Text style={styles.chartTitle}>Kehadiran 7 Hari Terakhir</Text>
-                <View style={styles.chartContainer}>
-                  <LineChart
-                    data={{
-                      labels: ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'],
-                      datasets: [{
-                        data: selectedStudent.weeklyAttendance,
-                        color: (opacity = 1) => `rgba(34, 197, 94, ${opacity})`,
-                        strokeWidth: 3,
-                      }],
-                    }}
-                    width={screenWidth - 60}
-                    height={220}
-                    chartConfig={chartConfig}
-                    bezier
-                    style={styles.chart}
-                  />
+                  <View style={styles.progressItem}>
+                    <Text style={styles.progressLabel}>Posisi Saat Ini</Text>
+                    <Text style={styles.progressValue}>{selectedStudent.currentPosition}</Text>
+                  </View>
                 </View>
               </View>
 
@@ -683,6 +635,25 @@ export default function Reports() {
                   </View>
                 )}
               </View>
+
+              {/* Action Buttons */}
+              <View style={styles.actionButtons}>
+                <TouchableOpacity 
+                  style={[styles.actionButton, styles.shareButton]}
+                  onPress={() => handleShareReport(selectedStudent)}
+                >
+                  <ShareIcon size={20} color="#FFFFFF" />
+                  <Text style={styles.actionButtonText}>Bagikan Laporan</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[styles.actionButton, styles.downloadButton]}
+                  onPress={() => handleDownloadReport(selectedStudent)}
+                >
+                  <Download size={20} color="#FFFFFF" />
+                  <Text style={styles.actionButtonText}>Unduh Laporan</Text>
+                </TouchableOpacity>
+              </View>
             </ScrollView>
           )}
         </SafeAreaView>
@@ -699,10 +670,8 @@ export default function Reports() {
             <TouchableOpacity onPress={() => setShowDailyModal(false)}>
               <Text style={styles.closeButton}>Tutup</Text>
             </TouchableOpacity>
-            <Text style={styles.modalTitle}>Laporan Harian</Text>
-            <TouchableOpacity>
-              <Download size={20} color="#3B82F6" />
-            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Laporan TPQ</Text>
+            <View style={{ width: 60 }} />
           </View>
 
           {selectedDailyReport && (
@@ -802,20 +771,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#1E293B',
   },
-  exportButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#3B82F6',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    gap: 4,
-  },
-  exportButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-    fontSize: 14,
-  },
   scrollView: {
     flex: 1,
   },
@@ -843,31 +798,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   reportTypeOptionTextSelected: {
-    color: '#FFFFFF',
-  },
-  periodSelector: {
-    flexDirection: 'row',
-    marginHorizontal: 20,
-    marginVertical: 8,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 4,
-  },
-  periodOption: {
-    flex: 1,
-    paddingVertical: 8,
-    alignItems: 'center',
-    borderRadius: 8,
-  },
-  periodOptionSelected: {
-    backgroundColor: '#22C55E',
-  },
-  periodOptionText: {
-    fontSize: 14,
-    color: '#64748B',
-    fontWeight: '600',
-  },
-  periodOptionTextSelected: {
     color: '#FFFFFF',
   },
   summaryContainer: {
@@ -1145,56 +1075,31 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
   },
-  chartSection: {
+  progressSection: {
     marginBottom: 20,
   },
-  chartTitle: {
+  progressCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  progressItem: {
+    marginBottom: 12,
+  },
+  progressLabel: {
+    fontSize: 14,
+    color: '#64748B',
+    marginBottom: 4,
+  },
+  progressValue: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#1E293B',
-    marginBottom: 12,
-  },
-  chartContainer: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  chart: {
-    borderRadius: 8,
-  },
-  progressContainer: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    position: 'relative',
-  },
-  progressOverlay: {
-    position: 'absolute',
-    alignItems: 'center',
-    justifyContent: 'center',
-    top: '50%',
-    left: '50%',
-    transform: [{ translateX: -30 }, { translateY: -20 }],
-  },
-  progressPercentage: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#22C55E',
-  },
-  progressLabel: {
-    fontSize: 12,
-    color: '#64748B',
   },
   notesSection: {
     marginBottom: 20,
@@ -1238,6 +1143,31 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#15803D',
     lineHeight: 20,
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 20,
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 8,
+  },
+  shareButton: {
+    backgroundColor: '#3B82F6',
+  },
+  downloadButton: {
+    backgroundColor: '#22C55E',
+  },
+  actionButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 14,
   },
   dailyDetailHeader: {
     flexDirection: 'row',

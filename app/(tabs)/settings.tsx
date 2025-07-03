@@ -5,109 +5,220 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Switch,
   Alert,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { User, Download, Upload, Shield, Bell, Palette, CircleHelp as HelpCircle, LogOut, ChevronRight, Database, FileText } from 'lucide-react-native';
+import { Download, Upload, Database, Instagram, Linkedin } from 'lucide-react-native';
+import { studentService } from '@/services/studentService';
+import { attendanceService } from '@/services/attendanceService';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+
+interface DatabaseExport {
+  students: any[];
+  attendance: any[];
+  exportDate: string;
+  version: string;
+}
 
 export default function Settings() {
-  const [notifications, setNotifications] = useState(true);
-  const [darkMode, setDarkMode] = useState(false);
-  const [autoBackup, setAutoBackup] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
-  const handleBackupData = () => {
-    Alert.alert(
-      'Backup Data',
-      'Data akan dibackup ke penyimpanan lokal. Lanjutkan?',
-      [
-        { text: 'Batal', style: 'cancel' },
-        { 
-          text: 'Backup', 
-          onPress: () => {
-            // Implement backup logic here
-            Alert.alert('Berhasil', 'Data berhasil dibackup');
-          }
-        },
-      ]
-    );
+  const handleExportDatabase = async () => {
+    try {
+      setIsExporting(true);
+      
+      // Get all data
+      const students = await studentService.getAllStudents();
+      const attendance = await attendanceService.getAllAttendance();
+      
+      const exportData: DatabaseExport = {
+        students,
+        attendance,
+        exportDate: new Date().toISOString(),
+        version: '1.0.0'
+      };
+      
+      const jsonString = JSON.stringify(exportData, null, 2);
+      const today = new Date();
+      const dateString = `${today.getDate().toString().padStart(2, '0')}${(today.getMonth() + 1).toString().padStart(2, '0')}${today.getFullYear()}`;
+      const fileName = `TPQ_Database_Export_${dateString}.json`;
+      
+      if (FileSystem.documentDirectory) {
+        const fileUri = FileSystem.documentDirectory + fileName;
+        await FileSystem.writeAsStringAsync(fileUri, jsonString);
+        
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(fileUri, {
+            mimeType: 'application/json',
+            dialogTitle: 'Export Database TPQ'
+          });
+        } else {
+          Alert.alert('Berhasil', `Database berhasil diekspor ke ${fileName}`);
+        }
+      } else {
+        // Fallback for web
+        if (typeof window !== 'undefined') {
+          const blob = new Blob([jsonString], { type: 'application/json' });
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = fileName;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
+          Alert.alert('Berhasil', 'Database berhasil diekspor');
+        }
+      }
+    } catch (error) {
+      console.error('Error exporting database:', error);
+      Alert.alert('Error', 'Gagal mengekspor database');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
-  const handleRestoreData = () => {
-    Alert.alert(
-      'Restore Data',
-      'Apakah Anda yakin ingin mengembalikan data dari backup? Data saat ini akan digantikan.',
-      [
-        { text: 'Batal', style: 'cancel' },
-        { 
-          text: 'Restore', 
-          style: 'destructive',
-          onPress: () => {
-            // Implement restore logic here
-            Alert.alert('Berhasil', 'Data berhasil direstore');
+  const handleImportDatabase = async () => {
+    try {
+      setIsImporting(true);
+      
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/json',
+        copyToCacheDirectory: true
+      });
+      
+      if (result.canceled) {
+        setIsImporting(false);
+        return;
+      }
+      
+      const fileUri = result.assets[0].uri;
+      const fileContent = await FileSystem.readAsStringAsync(fileUri);
+      const importData: DatabaseExport = JSON.parse(fileContent);
+      
+      if (!importData.students || !importData.attendance) {
+        Alert.alert('Error', 'Format file tidak valid');
+        setIsImporting(false);
+        return;
+      }
+      
+      Alert.alert(
+        'Konfirmasi Import',
+        `Akan mengimpor ${importData.students.length} siswa dan ${importData.attendance.length} data absensi. Data yang sudah ada akan diperbarui. Lanjutkan?`,
+        [
+          { text: 'Batal', style: 'cancel' },
+          {
+            text: 'Import',
+            onPress: async () => {
+              try {
+                // Get existing data
+                const existingStudents = await studentService.getAllStudents();
+                const existingAttendance = await attendanceService.getAllAttendance();
+                
+                // Process students
+                for (const importStudent of importData.students) {
+                  const existingStudent = existingStudents.find(s => s.id === importStudent.id);
+                  
+                  if (existingStudent) {
+                    // Check if same ID but different name - create new student
+                    if (existingStudent.name !== importStudent.name) {
+                      const newStudentData = {
+                        ...importStudent,
+                        id: Date.now().toString() + Math.random().toString(36).substr(2, 9)
+                      };
+                      delete newStudentData.createdAt;
+                      delete newStudentData.updatedAt;
+                      await studentService.addStudent(newStudentData);
+                    } else {
+                      // Same ID and name - update existing
+                      const updateData = { ...importStudent };
+                      delete updateData.id;
+                      delete updateData.createdAt;
+                      await studentService.updateStudent(importStudent.id, updateData);
+                    }
+                  } else {
+                    // New student
+                    const newStudentData = { ...importStudent };
+                    delete newStudentData.createdAt;
+                    delete newStudentData.updatedAt;
+                    await studentService.addStudent(newStudentData);
+                  }
+                }
+                
+                // Process attendance
+                for (const importAttendanceRecord of importData.attendance) {
+                  const existingRecord = existingAttendance.find(a => a.id === importAttendanceRecord.id);
+                  
+                  if (existingRecord) {
+                    // Update existing
+                    const updateData = { ...importAttendanceRecord };
+                    delete updateData.id;
+                    delete updateData.createdAt;
+                    await attendanceService.updateAttendance(importAttendanceRecord.id, updateData);
+                  } else {
+                    // New record
+                    const newRecordData = { ...importAttendanceRecord };
+                    delete newRecordData.id;
+                    delete newRecordData.createdAt;
+                    delete newRecordData.updatedAt;
+                    await attendanceService.addAttendance(newRecordData);
+                  }
+                }
+                
+                Alert.alert('Berhasil', 'Database berhasil diimpor');
+              } catch (error) {
+                console.error('Error importing database:', error);
+                Alert.alert('Error', 'Gagal mengimpor database');
+              }
+            }
           }
-        },
-      ]
-    );
+        ]
+      );
+    } catch (error) {
+      console.error('Error importing database:', error);
+      Alert.alert('Error', 'Gagal membaca file database');
+    } finally {
+      setIsImporting(false);
+    }
   };
 
-  const handleExportData = () => {
-    Alert.alert(
-      'Export Data',
-      'Data akan diekspor dalam format CSV. Lanjutkan?',
-      [
-        { text: 'Batal', style: 'cancel' },
-        { 
-          text: 'Export', 
-          onPress: () => {
-            // Implement export logic here
-            Alert.alert('Berhasil', 'Data berhasil diekspor');
-          }
-        },
-      ]
-    );
+  const openInstagram = () => {
+    Linking.openURL('https://www.instagram.com/gusti_mahardika_sm/');
   };
 
-  const handleLogout = () => {
-    Alert.alert(
-      'Keluar',
-      'Apakah Anda yakin ingin keluar dari aplikasi?',
-      [
-        { text: 'Batal', style: 'cancel' },
-        { 
-          text: 'Keluar', 
-          style: 'destructive',
-          onPress: () => {
-            // Implement logout logic here
-            Alert.alert('Berhasil', 'Anda telah keluar dari aplikasi');
-          }
-        },
-      ]
-    );
+  const openLinkedIn = () => {
+    Linking.openURL('https://www.linkedin.com/in/gusti-mahardika-sm');
   };
 
   const SettingItem = ({ 
     icon, 
     title, 
     subtitle, 
-    onPress, 
-    rightComponent 
+    onPress,
+    disabled = false
   }: {
     icon: React.ReactNode;
     title: string;
     subtitle?: string;
     onPress?: () => void;
-    rightComponent?: React.ReactNode;
+    disabled?: boolean;
   }) => (
-    <TouchableOpacity style={styles.settingItem} onPress={onPress}>
+    <TouchableOpacity 
+      style={[styles.settingItem, disabled && styles.settingItemDisabled]} 
+      onPress={onPress}
+      disabled={disabled}
+    >
       <View style={styles.settingIcon}>
         {icon}
       </View>
       <View style={styles.settingContent}>
-        <Text style={styles.settingTitle}>{title}</Text>
-        {subtitle && <Text style={styles.settingSubtitle}>{subtitle}</Text>}
+        <Text style={[styles.settingTitle, disabled && styles.settingTitleDisabled]}>{title}</Text>
+        {subtitle && <Text style={[styles.settingSubtitle, disabled && styles.settingSubtitleDisabled]}>{subtitle}</Text>}
       </View>
-      {rightComponent || <ChevronRight size={20} color="#CBD5E1" />}
     </TouchableOpacity>
   );
 
@@ -128,100 +239,42 @@ export default function Settings() {
       </View>
 
       <ScrollView style={styles.scrollView}>
-        {/* Profile Section */}
-        <SettingSection title="Profil">
+        {/* Database Management */}
+        <SettingSection title="Manajemen Database">
           <SettingItem
-            icon={<User size={24} color="#3B82F6" />}
-            title="Admin TPQ"
-            subtitle="Ustadz/Ustadzah"
-            onPress={() => Alert.alert('Info', 'Fitur profil akan segera tersedia')}
+            icon={<Upload size={24} color="#22C55E" />}
+            title="Ekspor Database"
+            subtitle="Simpan seluruh data siswa dan absensi"
+            onPress={handleExportDatabase}
+            disabled={isExporting}
+          />
+          <SettingItem
+            icon={<Download size={24} color="#3B82F6" />}
+            title="Impor Database"
+            subtitle="Muat data dari file backup"
+            onPress={handleImportDatabase}
+            disabled={isImporting}
           />
         </SettingSection>
 
-        {/* Data Management */}
-        <SettingSection title="Manajemen Data">
-          <SettingItem
-            icon={<Download size={24} color="#22C55E" />}
-            title="Backup Data"
-            subtitle="Simpan data ke penyimpanan lokal"
-            onPress={handleBackupData}
-          />
-          <SettingItem
-            icon={<Upload size={24} color="#F59E0B" />}
-            title="Restore Data"
-            subtitle="Kembalikan data dari backup"
-            onPress={handleRestoreData}
-          />
-          <SettingItem
-            icon={<FileText size={24} color="#8B5CF6" />}
-            title="Export Data"
-            subtitle="Export ke file CSV/Excel"
-            onPress={handleExportData}
-          />
-          <SettingItem
-            icon={<Database size={24} color="#EC4899" />}
-            title="Auto Backup"
-            subtitle="Backup otomatis setiap hari"
-            rightComponent={
-              <Switch
-                value={autoBackup}
-                onValueChange={setAutoBackup}
-                trackColor={{ false: '#E5E7EB', true: '#BBF7D0' }}
-                thumbColor={autoBackup ? '#22C55E' : '#F3F4F6'}
-              />
-            }
-          />
-        </SettingSection>
-
-        {/* App Settings */}
-        <SettingSection title="Pengaturan Aplikasi">
-          <SettingItem
-            icon={<Bell size={24} color="#F59E0B" />}
-            title="Notifikasi"
-            subtitle="Pengingat kehadiran dan backup"
-            rightComponent={
-              <Switch
-                value={notifications}
-                onValueChange={setNotifications}
-                trackColor={{ false: '#E5E7EB', true: '#BBF7D0' }}
-                thumbColor={notifications ? '#22C55E' : '#F3F4F6'}
-              />
-            }
-          />
-          <SettingItem
-            icon={<Palette size={24} color="#8B5CF6" />}
-            title="Mode Gelap"
-            subtitle="Tampilan tema gelap"
-            rightComponent={
-              <Switch
-                value={darkMode}
-                onValueChange={setDarkMode}
-                trackColor={{ false: '#E5E7EB', true: '#BBF7D0' }}
-                thumbColor={darkMode ? '#22C55E' : '#F3F4F6'}
-              />
-            }
-          />
-        </SettingSection>
-
-        {/* Security */}
-        <SettingSection title="Keamanan">
-          <SettingItem
-            icon={<Shield size={24} color="#EF4444" />}
-            title="Keamanan Data"
-            subtitle="Proteksi dengan PIN/Password"
-            onPress={() => Alert.alert('Info', 'Fitur keamanan akan segera tersedia')}
-          />
-        </SettingSection>
-
-        {/* Help & Support */}
-        <SettingSection title="Bantuan & Dukungan">
-          <SettingItem
-            icon={<HelpCircle size={24} color="#3B82F6" />}
-            title="Panduan Penggunaan"
-            subtitle="Tutorial lengkap aplikasi"
-            onPress={() => Alert.alert('Info', 'Fitur panduan akan segera tersedia')}
-          />
-        </SettingSection>
+        {/* Developer Info */}
+        <View style={styles.developerSection}>
+          <Text style={styles.developerTitle}>Dikembangkan oleh</Text>
+          <Text style={styles.developerName}>Gusti Mahardika Surya Maulana</Text>
+          <Text style={styles.developerInfo}>UNDIP Teknik Elektro 2022</Text>
+          
+          <View style={styles.socialLinks}>
+            <TouchableOpacity style={styles.socialButton} onPress={openInstagram}>
+              <Instagram size={20} color="#E4405F" />
+              <Text style={styles.socialText}>@gusti_mahardika_sm</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={styles.socialButton} onPress={openLinkedIn}>
+              <Linkedin size={20} color="#0077B5" />
+              <Text style={styles.socialText}>gusti-mahardika-sm</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
 
         {/* App Info */}
         <View style={styles.appInfo}>
@@ -231,12 +284,6 @@ export default function Settings() {
             Aplikasi manajemen absensi dan perkembangan siswa TPQ
           </Text>
         </View>
-
-        {/* Logout */}
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-          <LogOut size={20} color="#EF4444" />
-          <Text style={styles.logoutText}>Keluar</Text>
-        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -293,6 +340,9 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F1F5F9',
     gap: 12,
   },
+  settingItemDisabled: {
+    opacity: 0.5,
+  },
   settingIcon: {
     width: 40,
     height: 40,
@@ -310,9 +360,64 @@ const styles = StyleSheet.create({
     color: '#1E293B',
     marginBottom: 2,
   },
+  settingTitleDisabled: {
+    color: '#94A3B8',
+  },
   settingSubtitle: {
     fontSize: 14,
     color: '#64748B',
+  },
+  settingSubtitleDisabled: {
+    color: '#94A3B8',
+  },
+  developerSection: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 20,
+    marginTop: 20,
+    borderRadius: 12,
+    padding: 20,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  developerTitle: {
+    fontSize: 14,
+    color: '#64748B',
+    marginBottom: 8,
+  },
+  developerName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1E293B',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  developerInfo: {
+    fontSize: 14,
+    color: '#64748B',
+    marginBottom: 16,
+  },
+  socialLinks: {
+    gap: 12,
+    width: '100%',
+  },
+  socialButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8FAFC',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    gap: 8,
+  },
+  socialText: {
+    fontSize: 14,
+    color: '#1E293B',
+    fontWeight: '500',
   },
   appInfo: {
     alignItems: 'center',
@@ -336,23 +441,5 @@ const styles = StyleSheet.create({
     color: '#64748B',
     textAlign: 'center',
     lineHeight: 20,
-  },
-  logoutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FEF2F2',
-    marginHorizontal: 20,
-    marginVertical: 20,
-    paddingVertical: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#FECACA',
-    gap: 8,
-  },
-  logoutText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#EF4444',
   },
 });

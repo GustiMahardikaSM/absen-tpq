@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Plus, Search, User, BookOpen, CreditCard as Edit3, Trash2, Users } from 'lucide-react-native';
 import { Student, studentService } from '@/services/studentService';
+import { attendanceService } from '@/services/attendanceService';
 import DatePicker from '@/components/DatePicker';
 import ReadingPositionInput from '@/components/ReadingPositionInput';
 
@@ -87,7 +88,7 @@ export default function Students() {
   const handleDeleteStudent = (student: Student) => {
     Alert.alert(
       'Hapus Siswa',
-      `Apakah Anda yakin ingin menghapus data ${student.name}?`,
+      `Apakah Anda yakin ingin menghapus data ${student.name}? Semua data absensi siswa ini juga akan dihapus.`,
       [
         { text: 'Batal', style: 'cancel' },
         {
@@ -95,9 +96,19 @@ export default function Students() {
           style: 'destructive',
           onPress: async () => {
             try {
+              // Delete student
               await studentService.deleteStudent(student.id);
+              
+              // Delete all attendance records for this student
+              const attendanceRecords = await attendanceService.getAttendanceByStudent(student.id);
+              for (const record of attendanceRecords) {
+                await attendanceService.deleteAttendance(record.id);
+              }
+              
               loadStudents();
+              Alert.alert('Berhasil', 'Data siswa dan riwayat absensi berhasil dihapus');
             } catch (error) {
+              console.error('Error deleting student:', error);
               Alert.alert('Error', 'Gagal menghapus data siswa');
             }
           },
@@ -172,6 +183,7 @@ export default function Students() {
           <TouchableOpacity 
             style={[styles.actionButton, styles.deleteButton]}
             onPress={() => handleDeleteStudent(student)}
+            activeOpacity={0.7}
           >
             <Trash2 size={16} color="#EF4444" />
           </TouchableOpacity>
