@@ -85,7 +85,7 @@ export default function Students() {
     setShowAddModal(true);
   };
 
-  const handleDeleteStudent = (student: Student) => {
+  const handleDeleteStudent = async (student: Student) => {
     Alert.alert(
       'Hapus Siswa',
       `Apakah Anda yakin ingin menghapus data ${student.name}? Semua data absensi siswa ini juga akan dihapus.`,
@@ -96,29 +96,36 @@ export default function Students() {
           style: 'destructive',
           onPress: async () => {
             try {
-              console.log('Deleting student:', student.id);
+              console.log('Starting delete process for student:', student.id);
               
-              // Delete all attendance records for this student
+              // Delete all attendance records for this student first
               const attendanceRecords = await attendanceService.getAttendanceByStudent(student.id);
-              console.log('Found attendance records:', attendanceRecords.length);
+              console.log('Found attendance records to delete:', attendanceRecords.length);
               
               for (const record of attendanceRecords) {
-                await attendanceService.deleteAttendance(record.id);
+                try {
+                  await attendanceService.deleteAttendance(record.id);
+                  console.log('Deleted attendance record:', record.id);
+                } catch (attendanceError) {
+                  console.error('Error deleting attendance record:', record.id, attendanceError);
+                }
               }
               
               // Delete student
+              console.log('Deleting student:', student.id);
               const deleteResult = await studentService.deleteStudent(student.id);
-              console.log('Delete result:', deleteResult);
+              console.log('Student delete result:', deleteResult);
               
               if (deleteResult) {
+                // Reload students list
                 await loadStudents();
                 Alert.alert('Berhasil', 'Data siswa dan riwayat absensi berhasil dihapus');
               } else {
                 Alert.alert('Error', 'Gagal menghapus data siswa');
               }
             } catch (error) {
-              console.error('Error deleting student:', error);
-              Alert.alert('Error', 'Gagal menghapus data siswa: ' + error);
+              console.error('Error in delete process:', error);
+              Alert.alert('Error', 'Gagal menghapus data siswa: ' + String(error));
             }
           },
         },
