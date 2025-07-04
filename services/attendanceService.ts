@@ -16,6 +16,19 @@ export interface Attendance {
 
 const ATTENDANCE_KEY = 'tpq_attendance';
 
+// Generate ID with format YYMMDDHHmmss
+const generateAttendanceId = (): string => {
+  const now = new Date();
+  const year = now.getFullYear().toString().slice(-2);
+  const month = (now.getMonth() + 1).toString().padStart(2, '0');
+  const day = now.getDate().toString().padStart(2, '0');
+  const hour = now.getHours().toString().padStart(2, '0');
+  const minute = now.getMinutes().toString().padStart(2, '0');
+  const second = now.getSeconds().toString().padStart(2, '0');
+  
+  return `${year}${month}${day}${hour}${minute}${second}`;
+};
+
 class AttendanceService {
   async getAllAttendance(): Promise<Attendance[]> {
     try {
@@ -64,7 +77,7 @@ class AttendanceService {
       const allAttendance = await this.getAllAttendance();
       const newAttendance: Attendance = {
         ...attendanceData,
-        id: Date.now().toString(),
+        id: generateAttendanceId(),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -104,14 +117,20 @@ class AttendanceService {
 
   async deleteAttendance(id: string): Promise<boolean> {
     try {
+      console.log('Attempting to delete attendance with ID:', id);
       const allAttendance = await this.getAllAttendance();
+      console.log('Current attendance count:', allAttendance.length);
+      
       const filteredAttendance = allAttendance.filter(record => record.id !== id);
+      console.log('Filtered attendance count:', filteredAttendance.length);
       
       if (filteredAttendance.length === allAttendance.length) {
+        console.log('Attendance record not found for deletion');
         throw new Error('Attendance record not found');
       }
       
       await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(filteredAttendance));
+      console.log('Attendance deleted successfully');
       return true;
     } catch (error) {
       console.error('Error deleting attendance:', error);
@@ -154,6 +173,53 @@ class AttendanceService {
       await AsyncStorage.removeItem(ATTENDANCE_KEY);
     } catch (error) {
       console.error('Error clearing attendance:', error);
+      throw error;
+    }
+  }
+
+  // Method untuk import data dengan logika overwrite/add berdasarkan ID
+  async importAttendance(importedAttendance: Attendance[]): Promise<{
+    added: number;
+    updated: number;
+    errors: string[];
+  }> {
+    try {
+      const existingAttendance = await this.getAllAttendance();
+      let added = 0;
+      let updated = 0;
+      const errors: string[] = [];
+      
+      for (const importedRecord of importedAttendance) {
+        try {
+          const existingIndex = existingAttendance.findIndex(a => a.id === importedRecord.id);
+          
+          if (existingIndex !== -1) {
+            // ID sudah ada, overwrite data
+            existingAttendance[existingIndex] = {
+              ...importedRecord,
+              updatedAt: new Date().toISOString(),
+            };
+            updated++;
+          } else {
+            // ID baru, tambahkan sebagai record baru
+            const newRecord = {
+              ...importedRecord,
+              createdAt: importedRecord.createdAt || new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            };
+            existingAttendance.push(newRecord);
+            added++;
+          }
+        } catch (error) {
+          errors.push(`Error processing attendance for ${importedRecord.studentName}: ${error}`);
+        }
+      }
+      
+      await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(existingAttendance));
+      
+      return { added, updated, errors };
+    } catch (error) {
+      console.error('Error importing attendance:', error);
       throw error;
     }
   }

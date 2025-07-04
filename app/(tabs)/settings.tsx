@@ -108,71 +108,29 @@ export default function Settings() {
       
       Alert.alert(
         'Konfirmasi Import',
-        `Akan mengimpor ${importData.students.length} siswa dan ${importData.attendance.length} data absensi. Data yang sudah ada akan diperbarui. Lanjutkan?`,
+        `Akan mengimpor ${importData.students.length} siswa dan ${importData.attendance.length} data absensi.\n\n• Data dengan ID yang sama akan diperbarui\n• Data dengan ID baru akan ditambahkan\n\nLanjutkan?`,
         [
           { text: 'Batal', style: 'cancel' },
           {
             text: 'Import',
             onPress: async () => {
               try {
-                // Get existing data
-                const existingStudents = await studentService.getAllStudents();
-                const existingAttendance = await attendanceService.getAllAttendance();
+                // Import students using new method
+                const studentResult = await studentService.importStudents(importData.students);
                 
-                // Process students
-                for (const importStudent of importData.students) {
-                  const existingStudent = existingStudents.find(s => s.id === importStudent.id);
-                  
-                  if (existingStudent) {
-                    // Check if same ID but different name - create new student
-                    if (existingStudent.name !== importStudent.name) {
-                      const newStudentData = {
-                        ...importStudent,
-                        id: Date.now().toString() + Math.random().toString(36).substr(2, 9)
-                      };
-                      delete newStudentData.createdAt;
-                      delete newStudentData.updatedAt;
-                      await studentService.addStudent(newStudentData);
-                    } else {
-                      // Same ID and name - update existing
-                      const updateData = { ...importStudent };
-                      delete updateData.id;
-                      delete updateData.createdAt;
-                      await studentService.updateStudent(importStudent.id, updateData);
-                    }
-                  } else {
-                    // New student
-                    const newStudentData = { ...importStudent };
-                    delete newStudentData.createdAt;
-                    delete newStudentData.updatedAt;
-                    await studentService.addStudent(newStudentData);
-                  }
+                // Import attendance using new method
+                const attendanceResult = await attendanceService.importAttendance(importData.attendance);
+                
+                let message = `Import berhasil!\n\nSiswa:\n• ${studentResult.added} ditambahkan\n• ${studentResult.updated} diperbarui\n\nAbsensi:\n• ${attendanceResult.added} ditambahkan\n• ${attendanceResult.updated} diperbarui`;
+                
+                if (studentResult.errors.length > 0 || attendanceResult.errors.length > 0) {
+                  message += `\n\nError:\n${[...studentResult.errors, ...attendanceResult.errors].join('\n')}`;
                 }
                 
-                // Process attendance
-                for (const importAttendanceRecord of importData.attendance) {
-                  const existingRecord = existingAttendance.find(a => a.id === importAttendanceRecord.id);
-                  
-                  if (existingRecord) {
-                    // Update existing
-                    const updateData = { ...importAttendanceRecord };
-                    delete updateData.id;
-                    delete updateData.createdAt;
-                    await attendanceService.updateAttendance(importAttendanceRecord.id, updateData);
-                  } else {
-                    // New record
-                    const newRecordData = { ...importAttendanceRecord };
-                    delete newRecordData.id;
-                    delete newRecordData.createdAt;
-                    delete newRecordData.updatedAt;
-                    await attendanceService.addAttendance(newRecordData);
-                  }
-                }
-                
-                Alert.alert('Berhasil', 'Database berhasil diimpor');
+                Alert.alert('Import Selesai', message);
               } catch (error) {
                 console.error('Error importing database:', error);
-                Alert.alert('Error', 'Gagal mengimpor database');
+                Alert.alert('Error', 'Gagal mengimpor database: ' + error);
               }
             }
           }
@@ -180,7 +138,7 @@ export default function Settings() {
       );
     } catch (error) {
       console.error('Error importing database:', error);
-      Alert.alert('Error', 'Gagal membaca file database');
+      Alert.alert('Error', 'Gagal membaca file database: ' + error);
     } finally {
       setIsImporting(false);
     }
@@ -251,7 +209,7 @@ export default function Settings() {
           <SettingItem
             icon={<Download size={24} color="#3B82F6" />}
             title="Impor Database"
-            subtitle="Muat data dari file backup"
+            subtitle="Muat data dari file backup (ID sama akan diperbarui, ID baru akan ditambahkan)"
             onPress={handleImportDatabase}
             disabled={isImporting}
           />
@@ -282,6 +240,9 @@ export default function Settings() {
           <Text style={styles.appVersion}>Versi 1.0.0</Text>
           <Text style={styles.appDescription}>
             Aplikasi manajemen absensi dan perkembangan siswa TPQ
+          </Text>
+          <Text style={styles.idFormatInfo}>
+            Format ID: YYMMDDHHmmss (Tahun-Bulan-Tanggal-Jam-Menit-Detik)
           </Text>
         </View>
       </ScrollView>
@@ -441,5 +402,12 @@ const styles = StyleSheet.create({
     color: '#64748B',
     textAlign: 'center',
     lineHeight: 20,
+    marginBottom: 8,
+  },
+  idFormatInfo: {
+    fontSize: 12,
+    color: '#94A3B8',
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
 });

@@ -96,20 +96,29 @@ export default function Students() {
           style: 'destructive',
           onPress: async () => {
             try {
-              // Delete student
-              await studentService.deleteStudent(student.id);
+              console.log('Deleting student:', student.id);
               
               // Delete all attendance records for this student
               const attendanceRecords = await attendanceService.getAttendanceByStudent(student.id);
+              console.log('Found attendance records:', attendanceRecords.length);
+              
               for (const record of attendanceRecords) {
                 await attendanceService.deleteAttendance(record.id);
               }
               
-              loadStudents();
-              Alert.alert('Berhasil', 'Data siswa dan riwayat absensi berhasil dihapus');
+              // Delete student
+              const deleteResult = await studentService.deleteStudent(student.id);
+              console.log('Delete result:', deleteResult);
+              
+              if (deleteResult) {
+                await loadStudents();
+                Alert.alert('Berhasil', 'Data siswa dan riwayat absensi berhasil dihapus');
+              } else {
+                Alert.alert('Error', 'Gagal menghapus data siswa');
+              }
             } catch (error) {
               console.error('Error deleting student:', error);
-              Alert.alert('Error', 'Gagal menghapus data siswa');
+              Alert.alert('Error', 'Gagal menghapus data siswa: ' + error);
             }
           },
         },
