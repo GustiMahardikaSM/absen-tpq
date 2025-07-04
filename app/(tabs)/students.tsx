@@ -35,7 +35,9 @@ export default function Students() {
 
   const loadStudents = async () => {
     try {
+      console.log('Loading students...');
       const data = await studentService.getAllStudents();
+      console.log('Loaded students:', data.length);
       setStudents(data);
       setFilteredStudents(data);
     } catch (error) {
@@ -85,42 +87,54 @@ export default function Students() {
     setShowAddModal(true);
   };
 
-  const handleDeleteStudent = async (student: Student) => {
+  const handleDeleteStudent = (student: Student) => {
+    console.log('Delete button pressed for student:', student.name, student.id);
+    
     Alert.alert(
       'Hapus Siswa',
       `Apakah Anda yakin ingin menghapus data ${student.name}? Semua data absensi siswa ini juga akan dihapus.`,
       [
-        { text: 'Batal', style: 'cancel' },
+        { 
+          text: 'Batal', 
+          style: 'cancel',
+          onPress: () => console.log('Delete cancelled')
+        },
         {
           text: 'Hapus',
           style: 'destructive',
           onPress: async () => {
+            console.log('Delete confirmed, starting process...');
             try {
-              console.log('Starting delete process for student:', student.id);
-              
               // Delete all attendance records for this student first
+              console.log('Getting attendance records for student:', student.id);
               const attendanceRecords = await attendanceService.getAttendanceByStudent(student.id);
               console.log('Found attendance records to delete:', attendanceRecords.length);
               
+              // Delete attendance records one by one
               for (const record of attendanceRecords) {
                 try {
+                  console.log('Deleting attendance record:', record.id);
                   await attendanceService.deleteAttendance(record.id);
-                  console.log('Deleted attendance record:', record.id);
+                  console.log('Successfully deleted attendance record:', record.id);
                 } catch (attendanceError) {
                   console.error('Error deleting attendance record:', record.id, attendanceError);
+                  // Continue with other records even if one fails
                 }
               }
               
-              // Delete student
+              // Delete the student
               console.log('Deleting student:', student.id);
               const deleteResult = await studentService.deleteStudent(student.id);
               console.log('Student delete result:', deleteResult);
               
               if (deleteResult) {
+                console.log('Student deleted successfully, reloading list...');
                 // Reload students list
                 await loadStudents();
+                console.log('Students list reloaded');
                 Alert.alert('Berhasil', 'Data siswa dan riwayat absensi berhasil dihapus');
               } else {
+                console.log('Delete result was false');
                 Alert.alert('Error', 'Gagal menghapus data siswa');
               }
             } catch (error) {
@@ -186,7 +200,7 @@ export default function Students() {
         <View style={styles.studentInfo}>
           <Text style={styles.studentName}>{student.name}</Text>
           <Text style={styles.studentAge}>
-            {calculateAge(student.birthDate)}<Text> • </Text>{student.gender}
+            {calculateAge(student.birthDate)} • {student.gender}
           </Text>
         </View>
         <View style={styles.actionButtons}>
@@ -198,7 +212,10 @@ export default function Students() {
           </TouchableOpacity>
           <TouchableOpacity 
             style={[styles.actionButton, styles.deleteButton]}
-            onPress={() => handleDeleteStudent(student)}
+            onPress={() => {
+              console.log('Delete button touched for:', student.name);
+              handleDeleteStudent(student);
+            }}
             activeOpacity={0.7}
           >
             <Trash2 size={16} color="#EF4444" />
@@ -210,7 +227,7 @@ export default function Students() {
         <View style={styles.detailRow}>
           <BookOpen size={16} color="#22C55E" />
           <Text style={styles.detailText}>
-            {student.readingLevel}<Text> - </Text>{student.currentPosition}
+            {student.readingLevel} - {student.currentPosition}
           </Text>
         </View>
         
