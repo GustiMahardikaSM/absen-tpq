@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Alert,
   Linking,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Download, Upload, Database, Instagram, Linkedin } from 'lucide-react-native';
@@ -96,8 +97,36 @@ export default function Settings() {
         return;
       }
       
-      const fileUri = result.assets[0].uri;
-      const fileContent = await FileSystem.readAsStringAsync(fileUri);
+      let fileContent: string;
+      
+      // Platform-specific file reading
+      if (Platform.OS === 'web') {
+        // Use FileReader API for web
+        const file = result.assets[0].file;
+        if (!file) {
+          Alert.alert('Error', 'File tidak dapat dibaca');
+          setIsImporting(false);
+          return;
+        }
+        
+        fileContent = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            if (e.target?.result) {
+              resolve(e.target.result as string);
+            } else {
+              reject(new Error('Failed to read file'));
+            }
+          };
+          reader.onerror = () => reject(new Error('FileReader error'));
+          reader.readAsText(file);
+        });
+      } else {
+        // Use FileSystem for native platforms
+        const fileUri = result.assets[0].uri;
+        fileContent = await FileSystem.readAsStringAsync(fileUri);
+      }
+      
       const importData: DatabaseExport = JSON.parse(fileContent);
       
       if (!importData.students || !importData.attendance) {
