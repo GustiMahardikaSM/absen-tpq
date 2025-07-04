@@ -10,7 +10,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Plus, Search, User, BookOpen, Edit3, Trash2, Users } from 'lucide-react-native';
+import { Plus, Search, User, BookOpen, CreditCard as Edit3, Trash2, Users } from 'lucide-react-native';
 import { Student, studentService } from '@/services/studentService';
 import { attendanceService } from '@/services/attendanceService';
 import DatePicker from '@/components/DatePicker';
