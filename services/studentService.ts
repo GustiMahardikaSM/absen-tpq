@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { storageService } from './storageService';
 
 export interface Student {
   id: string;
@@ -12,9 +12,9 @@ export interface Student {
   updatedAt: string;
 }
 
-const STUDENTS_KEY = 'tpq_students';
+const STUDENTS_KEY = 'tpq_students_v2';
 
-// Generate ID with format YYMMDDHHmmss
+// Generate ID dengan format YYMMDDHHmmss
 const generateStudentId = (): string => {
   const now = new Date();
   const year = now.getFullYear().toString().slice(-2);
@@ -28,29 +28,12 @@ const generateStudentId = (): string => {
 };
 
 class StudentService {
-  async getAllStudents(): Promise<Student[]> {
-    try {
-      const data = await AsyncStorage.getItem(STUDENTS_KEY);
-      return data ? JSON.parse(data) : [];
-    } catch (error) {
-      console.error('Error getting students:', error);
-      return [];
-    }
-  }
-
-  async getStudentById(id: string): Promise<Student | null> {
-    try {
-      const students = await this.getAllStudents();
-      return students.find(student => student.id === id) || null;
-    } catch (error) {
-      console.error('Error getting student by id:', error);
-      return null;
-    }
-  }
-
+  // CREATE - Tambah siswa baru
   async addStudent(studentData: Omit<Student, 'id' | 'createdAt' | 'updatedAt'>): Promise<Student> {
     try {
-      const students = await this.getAllStudents();
+      console.log('Adding new student:', studentData.name);
+      
+      const students = await storageService.getData<Student>(STUDENTS_KEY);
       const newStudent: Student = {
         ...studentData,
         id: generateStudentId(),
@@ -59,8 +42,13 @@ class StudentService {
       };
       
       students.push(newStudent);
-      await AsyncStorage.setItem(STUDENTS_KEY, JSON.stringify(students));
+      const saved = await storageService.saveData(STUDENTS_KEY, students);
       
+      if (!saved) {
+        throw new Error('Failed to save student data');
+      }
+      
+      console.log('Student added successfully:', newStudent.id);
       return newStudent;
     } catch (error) {
       console.error('Error adding student:', error);
@@ -68,12 +56,43 @@ class StudentService {
     }
   }
 
+  // READ - Ambil semua siswa
+  async getAllStudents(): Promise<Student[]> {
+    try {
+      console.log('Getting all students...');
+      const students = await storageService.getData<Student>(STUDENTS_KEY);
+      console.log(`Retrieved ${students.length} students`);
+      return students;
+    } catch (error) {
+      console.error('Error getting all students:', error);
+      return [];
+    }
+  }
+
+  // READ - Ambil siswa berdasarkan ID
+  async getStudentById(id: string): Promise<Student | null> {
+    try {
+      console.log('Getting student by ID:', id);
+      const students = await storageService.getData<Student>(STUDENTS_KEY);
+      const student = students.find(s => s.id === id);
+      console.log('Student found:', !!student);
+      return student || null;
+    } catch (error) {
+      console.error('Error getting student by ID:', error);
+      return null;
+    }
+  }
+
+  // UPDATE - Update data siswa
   async updateStudent(id: string, updates: Partial<Omit<Student, 'id' | 'createdAt'>>): Promise<Student | null> {
     try {
-      const students = await this.getAllStudents();
-      const index = students.findIndex(student => student.id === id);
+      console.log('Updating student:', id);
+      
+      const students = await storageService.getData<Student>(STUDENTS_KEY);
+      const index = students.findIndex(s => s.id === id);
       
       if (index === -1) {
+        console.log('Student not found for update:', id);
         throw new Error('Student not found');
       }
       
@@ -83,7 +102,13 @@ class StudentService {
         updatedAt: new Date().toISOString(),
       };
       
-      await AsyncStorage.setItem(STUDENTS_KEY, JSON.stringify(students));
+      const saved = await storageService.saveData(STUDENTS_KEY, students);
+      
+      if (!saved) {
+        throw new Error('Failed to save updated student data');
+      }
+      
+      console.log('Student updated successfully:', id);
       return students[index];
     } catch (error) {
       console.error('Error updating student:', error);
@@ -91,22 +116,28 @@ class StudentService {
     }
   }
 
+  // DELETE - Hapus siswa
   async deleteStudent(id: string): Promise<boolean> {
     try {
-      console.log('Attempting to delete student with ID:', id);
-      const students = await this.getAllStudents();
-      console.log('Current students count:', students.length);
+      console.log('Deleting student:', id);
       
-      const filteredStudents = students.filter(student => student.id !== id);
-      console.log('Filtered students count:', filteredStudents.length);
+      const students = await storageService.getData<Student>(STUDENTS_KEY);
+      const initialCount = students.length;
       
-      if (filteredStudents.length === students.length) {
-        console.log('Student not found for deletion');
+      const filteredStudents = students.filter(s => s.id !== id);
+      
+      if (filteredStudents.length === initialCount) {
+        console.log('Student not found for deletion:', id);
         throw new Error('Student not found');
       }
       
-      await AsyncStorage.setItem(STUDENTS_KEY, JSON.stringify(filteredStudents));
-      console.log('Student deleted successfully');
+      const saved = await storageService.saveData(STUDENTS_KEY, filteredStudents);
+      
+      if (!saved) {
+        throw new Error('Failed to save after deletion');
+      }
+      
+      console.log('Student deleted successfully:', id);
       return true;
     } catch (error) {
       console.error('Error deleting student:', error);
@@ -114,48 +145,53 @@ class StudentService {
     }
   }
 
+  // SEARCH - Cari siswa
   async searchStudents(query: string): Promise<Student[]> {
     try {
-      const students = await this.getAllStudents();
+      console.log('Searching students with query:', query);
+      
+      const students = await storageService.getData<Student>(STUDENTS_KEY);
       const lowercaseQuery = query.toLowerCase();
       
-      return students.filter(student =>
+      const results = students.filter(student =>
         student.name.toLowerCase().includes(lowercaseQuery) ||
         student.readingLevel.toLowerCase().includes(lowercaseQuery)
       );
+      
+      console.log(`Found ${results.length} students matching query`);
+      return results;
     } catch (error) {
       console.error('Error searching students:', error);
       return [];
     }
   }
 
+  // FILTER - Filter siswa berdasarkan level bacaan
   async getStudentsByReadingLevel(level: string): Promise<Student[]> {
     try {
-      const students = await this.getAllStudents();
-      return students.filter(student => student.readingLevel === level);
+      console.log('Getting students by reading level:', level);
+      
+      const students = await storageService.getData<Student>(STUDENTS_KEY);
+      const results = students.filter(student => student.readingLevel === level);
+      
+      console.log(`Found ${results.length} students with reading level ${level}`);
+      return results;
     } catch (error) {
       console.error('Error getting students by reading level:', error);
       return [];
     }
   }
 
-  async clearAllStudents(): Promise<void> {
-    try {
-      await AsyncStorage.removeItem(STUDENTS_KEY);
-    } catch (error) {
-      console.error('Error clearing students:', error);
-      throw error;
-    }
-  }
-
-  // Method untuk import data dengan logika overwrite/add berdasarkan ID
+  // IMPORT - Import data siswa dengan logika overwrite/add
   async importStudents(importedStudents: Student[]): Promise<{
     added: number;
     updated: number;
     errors: string[];
   }> {
     try {
-      const existingStudents = await this.getAllStudents();
+      console.log('Importing students:', importedStudents.length);
+      
+      const existingStudents = await storageService.getData<Student>(STUDENTS_KEY);
       let added = 0;
       let updated = 0;
       const errors: string[] = [];
@@ -171,6 +207,7 @@ class StudentService {
               updatedAt: new Date().toISOString(),
             };
             updated++;
+            console.log('Updated student:', importedStudent.id);
           } else {
             // ID baru, tambahkan sebagai siswa baru
             const newStudent = {
@@ -180,18 +217,52 @@ class StudentService {
             };
             existingStudents.push(newStudent);
             added++;
+            console.log('Added new student:', importedStudent.id);
           }
         } catch (error) {
-          errors.push(`Error processing student ${importedStudent.name}: ${error}`);
+          const errorMsg = `Error processing student ${importedStudent.name}: ${error}`;
+          console.error(errorMsg);
+          errors.push(errorMsg);
         }
       }
       
-      await AsyncStorage.setItem(STUDENTS_KEY, JSON.stringify(existingStudents));
+      const saved = await storageService.saveData(STUDENTS_KEY, existingStudents);
       
+      if (!saved) {
+        throw new Error('Failed to save imported data');
+      }
+      
+      console.log(`Import completed: ${added} added, ${updated} updated, ${errors.length} errors`);
       return { added, updated, errors };
     } catch (error) {
       console.error('Error importing students:', error);
       throw error;
+    }
+  }
+
+  // CLEAR - Hapus semua data siswa
+  async clearAllStudents(): Promise<boolean> {
+    try {
+      console.log('Clearing all students...');
+      const cleared = await storageService.clearData(STUDENTS_KEY);
+      console.log('All students cleared:', cleared);
+      return cleared;
+    } catch (error) {
+      console.error('Error clearing students:', error);
+      return false;
+    }
+  }
+
+  // BACKUP - Backup data siswa
+  async backupStudents(): Promise<Student[]> {
+    try {
+      console.log('Creating backup of students...');
+      const students = await storageService.getData<Student>(STUDENTS_KEY);
+      console.log(`Backed up ${students.length} students`);
+      return students;
+    } catch (error) {
+      console.error('Error backing up students:', error);
+      return [];
     }
   }
 }

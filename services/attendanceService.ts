@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { storageService } from './storageService';
 
 export interface Attendance {
   id: string;
@@ -14,9 +14,9 @@ export interface Attendance {
   updatedAt: string;
 }
 
-const ATTENDANCE_KEY = 'tpq_attendance';
+const ATTENDANCE_KEY = 'tpq_attendance_v2';
 
-// Generate ID with format YYMMDDHHmmss
+// Generate ID dengan format YYMMDDHHmmss
 const generateAttendanceId = (): string => {
   const now = new Date();
   const year = now.getFullYear().toString().slice(-2);
@@ -30,51 +30,12 @@ const generateAttendanceId = (): string => {
 };
 
 class AttendanceService {
-  async getAllAttendance(): Promise<Attendance[]> {
-    try {
-      const data = await AsyncStorage.getItem(ATTENDANCE_KEY);
-      return data ? JSON.parse(data) : [];
-    } catch (error) {
-      console.error('Error getting attendance:', error);
-      return [];
-    }
-  }
-
-  async getAttendanceByDate(date: string): Promise<Attendance[]> {
-    try {
-      const attendance = await this.getAllAttendance();
-      return attendance.filter(record => record.date === date);
-    } catch (error) {
-      console.error('Error getting attendance by date:', error);
-      return [];
-    }
-  }
-
-  async getAttendanceByStudent(studentId: string): Promise<Attendance[]> {
-    try {
-      const attendance = await this.getAllAttendance();
-      return attendance.filter(record => record.studentId === studentId);
-    } catch (error) {
-      console.error('Error getting attendance by student:', error);
-      return [];
-    }
-  }
-
-  async getAttendanceByDateRange(startDate: string, endDate: string): Promise<Attendance[]> {
-    try {
-      const attendance = await this.getAllAttendance();
-      return attendance.filter(record => 
-        record.date >= startDate && record.date <= endDate
-      );
-    } catch (error) {
-      console.error('Error getting attendance by date range:', error);
-      return [];
-    }
-  }
-
+  // CREATE - Tambah data absensi
   async addAttendance(attendanceData: Omit<Attendance, 'id' | 'createdAt' | 'updatedAt'>): Promise<Attendance> {
     try {
-      const allAttendance = await this.getAllAttendance();
+      console.log('Adding attendance for student:', attendanceData.studentName);
+      
+      const allAttendance = await storageService.getData<Attendance>(ATTENDANCE_KEY);
       const newAttendance: Attendance = {
         ...attendanceData,
         id: generateAttendanceId(),
@@ -83,8 +44,13 @@ class AttendanceService {
       };
       
       allAttendance.push(newAttendance);
-      await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(allAttendance));
+      const saved = await storageService.saveData(ATTENDANCE_KEY, allAttendance);
       
+      if (!saved) {
+        throw new Error('Failed to save attendance data');
+      }
+      
+      console.log('Attendance added successfully:', newAttendance.id);
       return newAttendance;
     } catch (error) {
       console.error('Error adding attendance:', error);
@@ -92,12 +58,73 @@ class AttendanceService {
     }
   }
 
+  // READ - Ambil semua data absensi
+  async getAllAttendance(): Promise<Attendance[]> {
+    try {
+      console.log('Getting all attendance...');
+      const attendance = await storageService.getData<Attendance>(ATTENDANCE_KEY);
+      console.log(`Retrieved ${attendance.length} attendance records`);
+      return attendance;
+    } catch (error) {
+      console.error('Error getting all attendance:', error);
+      return [];
+    }
+  }
+
+  // READ - Ambil absensi berdasarkan tanggal
+  async getAttendanceByDate(date: string): Promise<Attendance[]> {
+    try {
+      console.log('Getting attendance for date:', date);
+      const attendance = await storageService.getData<Attendance>(ATTENDANCE_KEY);
+      const results = attendance.filter(record => record.date === date);
+      console.log(`Found ${results.length} attendance records for ${date}`);
+      return results;
+    } catch (error) {
+      console.error('Error getting attendance by date:', error);
+      return [];
+    }
+  }
+
+  // READ - Ambil absensi berdasarkan siswa
+  async getAttendanceByStudent(studentId: string): Promise<Attendance[]> {
+    try {
+      console.log('Getting attendance for student:', studentId);
+      const attendance = await storageService.getData<Attendance>(ATTENDANCE_KEY);
+      const results = attendance.filter(record => record.studentId === studentId);
+      console.log(`Found ${results.length} attendance records for student ${studentId}`);
+      return results;
+    } catch (error) {
+      console.error('Error getting attendance by student:', error);
+      return [];
+    }
+  }
+
+  // READ - Ambil absensi berdasarkan rentang tanggal
+  async getAttendanceByDateRange(startDate: string, endDate: string): Promise<Attendance[]> {
+    try {
+      console.log('Getting attendance for date range:', startDate, 'to', endDate);
+      const attendance = await storageService.getData<Attendance>(ATTENDANCE_KEY);
+      const results = attendance.filter(record => 
+        record.date >= startDate && record.date <= endDate
+      );
+      console.log(`Found ${results.length} attendance records in date range`);
+      return results;
+    } catch (error) {
+      console.error('Error getting attendance by date range:', error);
+      return [];
+    }
+  }
+
+  // UPDATE - Update data absensi
   async updateAttendance(id: string, updates: Partial<Omit<Attendance, 'id' | 'createdAt'>>): Promise<Attendance | null> {
     try {
-      const allAttendance = await this.getAllAttendance();
+      console.log('Updating attendance:', id);
+      
+      const allAttendance = await storageService.getData<Attendance>(ATTENDANCE_KEY);
       const index = allAttendance.findIndex(record => record.id === id);
       
       if (index === -1) {
+        console.log('Attendance record not found for update:', id);
         throw new Error('Attendance record not found');
       }
       
@@ -107,7 +134,13 @@ class AttendanceService {
         updatedAt: new Date().toISOString(),
       };
       
-      await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(allAttendance));
+      const saved = await storageService.saveData(ATTENDANCE_KEY, allAttendance);
+      
+      if (!saved) {
+        throw new Error('Failed to save updated attendance data');
+      }
+      
+      console.log('Attendance updated successfully:', id);
       return allAttendance[index];
     } catch (error) {
       console.error('Error updating attendance:', error);
@@ -115,22 +148,28 @@ class AttendanceService {
     }
   }
 
+  // DELETE - Hapus data absensi
   async deleteAttendance(id: string): Promise<boolean> {
     try {
-      console.log('Attempting to delete attendance with ID:', id);
-      const allAttendance = await this.getAllAttendance();
-      console.log('Current attendance count:', allAttendance.length);
+      console.log('Deleting attendance:', id);
+      
+      const allAttendance = await storageService.getData<Attendance>(ATTENDANCE_KEY);
+      const initialCount = allAttendance.length;
       
       const filteredAttendance = allAttendance.filter(record => record.id !== id);
-      console.log('Filtered attendance count:', filteredAttendance.length);
       
-      if (filteredAttendance.length === allAttendance.length) {
-        console.log('Attendance record not found for deletion');
+      if (filteredAttendance.length === initialCount) {
+        console.log('Attendance record not found for deletion:', id);
         throw new Error('Attendance record not found');
       }
       
-      await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(filteredAttendance));
-      console.log('Attendance deleted successfully');
+      const saved = await storageService.saveData(ATTENDANCE_KEY, filteredAttendance);
+      
+      if (!saved) {
+        throw new Error('Failed to save after deletion');
+      }
+      
+      console.log('Attendance deleted successfully:', id);
       return true;
     } catch (error) {
       console.error('Error deleting attendance:', error);
@@ -138,6 +177,7 @@ class AttendanceService {
     }
   }
 
+  // STATS - Statistik absensi
   async getAttendanceStats(startDate: string, endDate: string): Promise<{
     totalDays: number;
     totalPresent: number;
@@ -145,18 +185,23 @@ class AttendanceService {
     attendanceRate: number;
   }> {
     try {
+      console.log('Calculating attendance stats for:', startDate, 'to', endDate);
+      
       const attendance = await this.getAttendanceByDateRange(startDate, endDate);
       const totalDays = attendance.length;
       const totalPresent = attendance.filter(record => record.present).length;
       const totalAbsent = totalDays - totalPresent;
       const attendanceRate = totalDays > 0 ? (totalPresent / totalDays) * 100 : 0;
       
-      return {
+      const stats = {
         totalDays,
         totalPresent,
         totalAbsent,
         attendanceRate,
       };
+      
+      console.log('Attendance stats calculated:', stats);
+      return stats;
     } catch (error) {
       console.error('Error getting attendance stats:', error);
       return {
@@ -168,23 +213,16 @@ class AttendanceService {
     }
   }
 
-  async clearAllAttendance(): Promise<void> {
-    try {
-      await AsyncStorage.removeItem(ATTENDANCE_KEY);
-    } catch (error) {
-      console.error('Error clearing attendance:', error);
-      throw error;
-    }
-  }
-
-  // Method untuk import data dengan logika overwrite/add berdasarkan ID
+  // IMPORT - Import data absensi dengan logika overwrite/add
   async importAttendance(importedAttendance: Attendance[]): Promise<{
     added: number;
     updated: number;
     errors: string[];
   }> {
     try {
-      const existingAttendance = await this.getAllAttendance();
+      console.log('Importing attendance records:', importedAttendance.length);
+      
+      const existingAttendance = await storageService.getData<Attendance>(ATTENDANCE_KEY);
       let added = 0;
       let updated = 0;
       const errors: string[] = [];
@@ -200,6 +238,7 @@ class AttendanceService {
               updatedAt: new Date().toISOString(),
             };
             updated++;
+            console.log('Updated attendance:', importedRecord.id);
           } else {
             // ID baru, tambahkan sebagai record baru
             const newRecord = {
@@ -209,18 +248,52 @@ class AttendanceService {
             };
             existingAttendance.push(newRecord);
             added++;
+            console.log('Added new attendance:', importedRecord.id);
           }
         } catch (error) {
-          errors.push(`Error processing attendance for ${importedRecord.studentName}: ${error}`);
+          const errorMsg = `Error processing attendance for ${importedRecord.studentName}: ${error}`;
+          console.error(errorMsg);
+          errors.push(errorMsg);
         }
       }
       
-      await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(existingAttendance));
+      const saved = await storageService.saveData(ATTENDANCE_KEY, existingAttendance);
       
+      if (!saved) {
+        throw new Error('Failed to save imported attendance data');
+      }
+      
+      console.log(`Attendance import completed: ${added} added, ${updated} updated, ${errors.length} errors`);
       return { added, updated, errors };
     } catch (error) {
       console.error('Error importing attendance:', error);
       throw error;
+    }
+  }
+
+  // CLEAR - Hapus semua data absensi
+  async clearAllAttendance(): Promise<boolean> {
+    try {
+      console.log('Clearing all attendance...');
+      const cleared = await storageService.clearData(ATTENDANCE_KEY);
+      console.log('All attendance cleared:', cleared);
+      return cleared;
+    } catch (error) {
+      console.error('Error clearing attendance:', error);
+      return false;
+    }
+  }
+
+  // BACKUP - Backup data absensi
+  async backupAttendance(): Promise<Attendance[]> {
+    try {
+      console.log('Creating backup of attendance...');
+      const attendance = await storageService.getData<Attendance>(ATTENDANCE_KEY);
+      console.log(`Backed up ${attendance.length} attendance records`);
+      return attendance;
+    } catch (error) {
+      console.error('Error backing up attendance:', error);
+      return [];
     }
   }
 }

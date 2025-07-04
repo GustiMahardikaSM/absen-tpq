@@ -10,7 +10,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Plus, Search, User, BookOpen, CreditCard as Edit3, Trash2, Users } from 'lucide-react-native';
+import { Plus, Search, User, BookOpen, Edit3, Trash2, Users } from 'lucide-react-native';
 import { Student, studentService } from '@/services/studentService';
 import { attendanceService } from '@/services/attendanceService';
 import DatePicker from '@/components/DatePicker';
@@ -22,6 +22,7 @@ export default function Students() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -35,6 +36,7 @@ export default function Students() {
 
   const loadStudents = async () => {
     try {
+      setIsLoading(true);
       console.log('Loading students...');
       const data = await studentService.getAllStudents();
       console.log('Loaded students:', data.length);
@@ -42,6 +44,9 @@ export default function Students() {
       setFilteredStudents(data);
     } catch (error) {
       console.error('Error loading students:', error);
+      Alert.alert('Error', 'Gagal memuat data siswa');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -92,7 +97,7 @@ export default function Students() {
     
     Alert.alert(
       'Hapus Siswa',
-      `Apakah Anda yakin ingin menghapus data ${student.name}? Semua data absensi siswa ini juga akan dihapus.`,
+      `Apakah Anda yakin ingin menghapus data ${student.name}?\n\nSemua data absensi siswa ini juga akan dihapus.`,
       [
         { 
           text: 'Batal', 
@@ -104,13 +109,15 @@ export default function Students() {
           style: 'destructive',
           onPress: async () => {
             console.log('Delete confirmed, starting process...');
+            setIsLoading(true);
+            
             try {
-              // Delete all attendance records for this student first
+              // Hapus semua data absensi siswa terlebih dahulu
               console.log('Getting attendance records for student:', student.id);
               const attendanceRecords = await attendanceService.getAttendanceByStudent(student.id);
               console.log('Found attendance records to delete:', attendanceRecords.length);
               
-              // Delete attendance records one by one
+              // Hapus record absensi satu per satu
               for (const record of attendanceRecords) {
                 try {
                   console.log('Deleting attendance record:', record.id);
@@ -118,18 +125,18 @@ export default function Students() {
                   console.log('Successfully deleted attendance record:', record.id);
                 } catch (attendanceError) {
                   console.error('Error deleting attendance record:', record.id, attendanceError);
-                  // Continue with other records even if one fails
+                  // Lanjutkan dengan record lain meskipun ada yang gagal
                 }
               }
               
-              // Delete the student
+              // Hapus data siswa
               console.log('Deleting student:', student.id);
               const deleteResult = await studentService.deleteStudent(student.id);
               console.log('Student delete result:', deleteResult);
               
               if (deleteResult) {
                 console.log('Student deleted successfully, reloading list...');
-                // Reload students list
+                // Reload daftar siswa
                 await loadStudents();
                 console.log('Students list reloaded');
                 Alert.alert('Berhasil', 'Data siswa dan riwayat absensi berhasil dihapus');
@@ -140,6 +147,8 @@ export default function Students() {
             } catch (error) {
               console.error('Error in delete process:', error);
               Alert.alert('Error', 'Gagal menghapus data siswa: ' + String(error));
+            } finally {
+              setIsLoading(false);
             }
           },
         },
@@ -153,18 +162,27 @@ export default function Students() {
       return;
     }
 
+    setIsLoading(true);
+    
     try {
       if (editingStudent) {
+        console.log('Updating student:', editingStudent.id);
         await studentService.updateStudent(editingStudent.id, formData);
+        Alert.alert('Berhasil', 'Data siswa berhasil diperbarui');
       } else {
+        console.log('Adding new student');
         await studentService.addStudent(formData);
+        Alert.alert('Berhasil', 'Siswa baru berhasil ditambahkan');
       }
       
       setShowAddModal(false);
       resetForm();
-      loadStudents();
+      await loadStudents();
     } catch (error) {
-      Alert.alert('Error', 'Gagal menyimpan data siswa');
+      console.error('Error saving student:', error);
+      Alert.alert('Error', 'Gagal menyimpan data siswa: ' + String(error));
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -207,6 +225,7 @@ export default function Students() {
           <TouchableOpacity 
             style={[styles.actionButton, styles.editButton]}
             onPress={() => handleEditStudent(student)}
+            disabled={isLoading}
           >
             <Edit3 size={16} color="#3B82F6" />
           </TouchableOpacity>
@@ -216,6 +235,7 @@ export default function Students() {
               console.log('Delete button touched for:', student.name);
               handleDeleteStudent(student);
             }}
+            disabled={isLoading}
             activeOpacity={0.7}
           >
             <Trash2 size={16} color="#EF4444" />
@@ -245,7 +265,11 @@ export default function Students() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>Data Siswa TPQ</Text>
-        <TouchableOpacity style={styles.addButton} onPress={handleAddStudent}>
+        <TouchableOpacity 
+          style={[styles.addButton, isLoading && styles.disabledButton]} 
+          onPress={handleAddStudent}
+          disabled={isLoading}
+        >
           <Plus size={20} color="#FFFFFF" />
           <Text style={styles.addButtonText}>Tambah</Text>
         </TouchableOpacity>
@@ -259,8 +283,16 @@ export default function Students() {
           placeholder="Cari nama atau tingkat bacaan..."
           value={searchQuery}
           onChangeText={setSearchQuery}
+          editable={!isLoading}
         />
       </View>
+
+      {/* Loading Indicator */}
+      {isLoading && (
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Memproses...</Text>
+        </View>
+      )}
 
       {/* Students List */}
       <ScrollView style={styles.studentsList}>
@@ -268,7 +300,7 @@ export default function Students() {
           <StudentCard key={student.id} student={student} />
         ))}
         
-        {filteredStudents.length === 0 && (
+        {filteredStudents.length === 0 && !isLoading && (
           <View style={styles.emptyState}>
             <Users size={48} color="#CBD5E1" />
             <Text style={styles.emptyText}>
@@ -286,14 +318,22 @@ export default function Students() {
       >
         <SafeAreaView style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={() => setShowAddModal(false)}>
-              <Text style={styles.cancelButton}>Batal</Text>
+            <TouchableOpacity 
+              onPress={() => setShowAddModal(false)}
+              disabled={isLoading}
+            >
+              <Text style={[styles.cancelButton, isLoading && styles.disabledText]}>Batal</Text>
             </TouchableOpacity>
             <Text style={styles.modalTitle}>
               {editingStudent ? 'Edit Siswa' : 'Tambah Siswa'}
             </Text>
-            <TouchableOpacity onPress={handleSaveStudent}>
-              <Text style={styles.saveButton}>Simpan</Text>
+            <TouchableOpacity 
+              onPress={handleSaveStudent}
+              disabled={isLoading}
+            >
+              <Text style={[styles.saveButton, isLoading && styles.disabledText]}>
+                {isLoading ? 'Menyimpan...' : 'Simpan'}
+              </Text>
             </TouchableOpacity>
           </View>
 
@@ -305,6 +345,7 @@ export default function Students() {
                 value={formData.name}
                 onChangeText={(text) => setFormData({...formData, name: text})}
                 placeholder="Masukkan nama lengkap"
+                editable={!isLoading}
               />
             </View>
 
@@ -328,6 +369,7 @@ export default function Students() {
                       formData.gender === gender && styles.genderOptionSelected
                     ]}
                     onPress={() => setFormData({...formData, gender: gender as any})}
+                    disabled={isLoading}
                   >
                     <Text style={[
                       styles.genderText,
@@ -351,6 +393,7 @@ export default function Students() {
                       formData.readingLevel === level && styles.levelOptionSelected
                     ]}
                     onPress={() => setFormData({...formData, readingLevel: level, currentPosition: ''})}
+                    disabled={isLoading}
                   >
                     <Text style={[
                       styles.levelText,
@@ -386,6 +429,7 @@ export default function Students() {
                 placeholder="Catatan tambahan (opsional)"
                 multiline
                 numberOfLines={3}
+                editable={!isLoading}
               />
             </View>
           </ScrollView>
@@ -429,6 +473,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 14,
   },
+  disabledButton: {
+    opacity: 0.5,
+  },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -446,6 +493,14 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     color: '#1E293B',
+  },
+  loadingContainer: {
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#64748B',
   },
   studentsList: {
     flex: 1,
@@ -562,6 +617,9 @@ const styles = StyleSheet.create({
     color: '#22C55E',
     fontSize: 16,
     fontWeight: '600',
+  },
+  disabledText: {
+    opacity: 0.5,
   },
   formContainer: {
     flex: 1,
