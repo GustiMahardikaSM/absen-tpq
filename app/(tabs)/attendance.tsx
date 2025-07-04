@@ -11,7 +11,7 @@ import {
   Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Calendar, CircleCheck as CheckCircle, Circle as XCircle, User, BookOpen, Star, MessageSquare } from 'lucide-react-native';
+import { Calendar, CircleCheck as CheckCircle, Circle as XCircle, User, BookOpen, Star, MessageSquare, Search } from 'lucide-react-native';
 import { Student, studentService } from '@/services/studentService';
 import { Attendance, attendanceService } from '@/services/attendanceService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -22,6 +22,8 @@ type StudentWithUrut = Student & { urut?: number };
 
 export default function AttendanceScreen() {
   const [students, setStudents] = useState<Student[]>([]);
+  const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [attendanceData, setAttendanceData] = useState<Attendance[]>([]);
   const [showAttendanceModal, setShowAttendanceModal] = useState(false);
@@ -45,6 +47,7 @@ export default function AttendanceScreen() {
     try {
       const data = await studentService.getAllStudents();
       setStudents(data);
+      setFilteredStudents(data);
     } catch (error) {
       console.error('Error loading students:', error);
     }
@@ -82,6 +85,14 @@ export default function AttendanceScreen() {
     };
     checkPrompt();
   }, [selectedDate]);
+
+  useEffect(() => {
+    const filtered = students.filter(student =>
+      student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      student.readingLevel.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+    setFilteredStudents(filtered);
+  }, [searchQuery, students]);
 
   const getAttendanceForStudent = (studentId: string) => {
     return attendanceData.find(a => a.studentId === studentId);
@@ -310,6 +321,17 @@ export default function AttendanceScreen() {
         <Text style={styles.selectedDate}>{formatDate(selectedDate)}</Text>
       </View>
 
+      {/* Search */}
+      <View style={styles.searchContainer}>
+        <Search size={20} color="#64748B" />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Cari nama atau tingkat bacaan..."
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
+      </View>
+
       {/* Toggle Manual */}
       <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 8, gap: 8 }}>
         <Text style={{ fontSize: 16 }}>Ada Kegiatan TPQ Hari Ini?</Text>
@@ -348,17 +370,17 @@ export default function AttendanceScreen() {
       {/* Students List */}
       {hasActivityToday ? (
         <ScrollView style={styles.studentsList}>
-          {students.map((student, idx) => (
+          {filteredStudents.map((student, idx) => (
             <StudentAttendanceCard
               key={student.id}
               student={{ ...student, urut: idx + 1 } as StudentWithUrut}
               disabled={false}
             />
           ))}
-          {students.length === 0 && (
+          {filteredStudents.length === 0 && (
             <View style={styles.emptyState}>
               <User size={48} color="#CBD5E1" />
-              <Text style={styles.emptyText}>Belum ada data siswa</Text>
+              <Text style={styles.emptyText}>{searchQuery ? 'Tidak ada siswa yang ditemukan' : 'Belum ada data siswa'}</Text>
             </View>
           )}
         </ScrollView>
@@ -923,5 +945,20 @@ const styles = StyleSheet.create({
   },
   completionOptionTextSelected: {
     color: '#FFFFFF',
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    marginHorizontal: 20,
+    marginBottom: 16,
+  },
+  searchInput: {
+    flex: 1,
+    padding: 8,
   },
 });
