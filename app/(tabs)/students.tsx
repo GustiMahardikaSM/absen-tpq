@@ -179,7 +179,7 @@ export default function Students() {
         <View style={styles.studentInfo}>
           <Text style={styles.studentName}>{student.name}</Text>
           <Text style={styles.studentAge}>
-            {calculateAge(student.birthDate)} • {student.gender}
+            {calculateAge(student.birthDate)}<Text> • </Text>{student.gender}
           </Text>
         </View>
         <View style={styles.actionButtons}>
@@ -203,7 +203,7 @@ export default function Students() {
         <View style={styles.detailRow}>
           <BookOpen size={16} color="#22C55E" />
           <Text style={styles.detailText}>
-            {student.readingLevel} - {student.currentPosition}
+            {student.readingLevel}<Text> - </Text>{student.currentPosition}
           </Text>
         </View>
         
