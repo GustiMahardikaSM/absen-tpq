@@ -1,7 +1,7 @@
 # Tema Islami untuk Aplikasi TPQ
 
 ## Overview
-Tema Islami ini dirancang khusus untuk aplikasi TPQ (Taman Pendidikan Al-Quran) dengan nuansa yang elegan, modern, dan sesuai dengan nilai-nilai Islam.
+Tema Islami ini dirancang khusus untuk aplikasi TPQ (Taman Pendidikan Al-Quran) dengan nuansa yang elegan, modern, dan sesuai dengan nilai-nilai Islam. Tema ini menggunakan kombinasi warna hijau dan emas yang mencerminkan identitas Islam, dengan desain yang modern dan user-friendly.
 
 ## Palet Warna
 

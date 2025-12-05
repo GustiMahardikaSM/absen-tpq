@@ -1,3 +1,4 @@
+// settings.gradle.kts - Konfigurasi Gradle untuk aplikasi TPQ
 pluginManagement {
     repositories {
         google {
