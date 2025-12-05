@@ -1,0 +1,5 @@
+<!-- file_paths.xml - Konfigurasi FileProvider untuk sharing PDF -->
+<paths>
+    <!-- External path untuk akses ke external storage (Downloads folder) -->
+    <external-path name="external_files" path="." />
+</paths> 

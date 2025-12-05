@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- themes.xml - Tema aplikasi TPQ -->
+<resources>
+    <!-- Tema utama aplikasi dengan Material Design Light -->
+    <style name="Theme.MyApplication" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

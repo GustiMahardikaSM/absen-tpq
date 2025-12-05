@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ic_launcher.xml - Adaptive icon untuk aplikasi TPQ -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Background hijau dengan grid pattern -->
+    <background android:drawable="@drawable/ic_launcher_background"/>
+    <!-- Foreground dengan icon Android robot -->
+    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+</adaptive-icon>

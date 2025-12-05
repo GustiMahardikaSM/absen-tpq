@@ -1,0 +1,5 @@
+<!-- strings.xml - String resources untuk aplikasi TPQ -->
+<resources>
+    <!-- Nama aplikasi yang ditampilkan di launcher -->
+    <string name="app_name">MyTPQ</string>
+</resources>
